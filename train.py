@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 import time
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -68,6 +69,7 @@ class TrainConfig:
     num_evals: int = 100
     warmup_percent: float = 0.01
     weight_decay: float = 0.1
+    head_weight_decay_multiplier: float = 1.0
     grad_norm: float | None = 1.0
     dropout: float = 0.0
     qk_norm: bool = True
@@ -164,6 +166,8 @@ def training_run_name(config):
     run_name += f"-tok{format_token_count(train_tokens)}"
     if config.weight_decay != TrainConfig.weight_decay:
         run_name += f"-wd{config.weight_decay}"
+    if config.head_weight_decay_multiplier != 1.0:
+        run_name += f"-headwdx{config.head_weight_decay_multiplier:g}"
     if config.embedding_init_scale != TrainConfig.embedding_init_scale:
         run_name += f"-emb{config.embedding_init_scale:g}"
     if config.warmup_percent != TrainConfig.warmup_percent:
@@ -631,6 +635,7 @@ def train(config):
         weight_decay=config.weight_decay,
         beta1=config.beta1,
         beta2=config.beta2,
+        head_weight_decay_multiplier=config.head_weight_decay_multiplier,
     )
 
     micro_batch_size = config.batch_size // config.num_micro_batches
@@ -736,7 +741,7 @@ def train(config):
         import wandb
 
         if checkpointer.enabled and wandb_run_id is None:
-            wandb_run_id = wandb.util.generate_id()
+            wandb_run_id = secrets.token_hex(4)
             checkpointer.write_wandb_run_state(
                 wandb_run_id,
                 wandb_entity=config.wandb_entity,

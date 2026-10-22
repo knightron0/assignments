@@ -11,9 +11,10 @@ dependencies = [
     "numpy",
     "requests",
     "sentencepiece",
+    "setuptools",  # triton imports it at runtime but does not declare it
     "torch==2.6.0",
     "tqdm",
-    "wandb==0.17.3",
+    "wandb==0.31.0",
 ]
 
 [tool.uv]

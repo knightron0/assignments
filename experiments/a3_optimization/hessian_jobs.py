@@ -28,6 +28,7 @@ from modal_utils import (
     build_image,
     timestamped_modal_app_name,
     user_volume,
+    secrets,
 )
 
 EXPERIMENT_KEY = "a3-inside-the-hessian"
@@ -36,7 +37,7 @@ VOLUME_RESULTS = f"results/{EXPERIMENT_KEY}"  # relative to the root of your Mod
 
 
 def _filename(job):
-    return job["name"] + (".json" if "measure" in job else ".jsonl")
+    return job["name"] + (".jsonl" if "continue" in job else ".json")
 
 
 def run_job(job, results_dir):
@@ -52,6 +53,10 @@ def run_job(job, results_dir):
         from experiments.a3_optimization.hessian_measure import measure_checkpoint
 
         tmp.write_text(json.dumps(measure_checkpoint(**job["measure"])))
+    elif "train_measure" in job:
+        from experiments.a3_optimization.p4_core_runs import train_and_measure
+
+        tmp.write_text(json.dumps(train_and_measure(job["train_measure"], job["measure_options"])))
     elif "continue" in job:
         from experiments.a3_optimization.hessian_measure import continue_projected
 
@@ -107,7 +112,10 @@ def launch(jobs, local=False, max_parallel=8):
         environment_name=MODAL_ENVIRONMENT,
         detach=True,
     ):
-        remote = _run_job_remote.with_options(max_containers=max_parallel)
+        remote = _run_job_remote.with_options(
+            max_containers=max_parallel,
+            secrets=secrets(include_wandb=any("train_measure" in j for j in pending)),
+        )
         calls = [remote.spawn(j) for j in pending]
     return [c.object_id for c in calls]
 

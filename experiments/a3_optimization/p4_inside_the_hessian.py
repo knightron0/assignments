@@ -35,6 +35,7 @@ LOOK_JOBS = [
      "measure": {"run": "adamw", "step": step,
                  "extremes": True,  # lambda_max, lambda_min, top-5 eigenvectors by family
                  "families": True,  # top eigenvalue of each family's block
+                 "hutchinson_probes": 8,  # trace and squared-curvature estimates
                  "energy": ("family", "layer"),  # ||H_cb||_F^2 between blocks
                  "density_runs": 4 if step in DENSITY_AT else 0}}
     for step in CHECKPOINTS
@@ -87,13 +88,15 @@ SUBSPACE_JOBS = [
 # and the starting step (any of STEPS; the run has optimizer state at each).
 
 STAGES = {"a": LOOK_JOBS, "b-rescale": RESCALE_JOBS, "b-measure": FINAL_JOBS, "c": SUBSPACE_JOBS}
+BASELINE_JOBS = LOOK_JOBS + RESCALE_JOBS + SUBSPACE_JOBS
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("stage", choices=(*STAGES, "b-train", "fetch"))
+    parser.add_argument("stage", choices=(*STAGES, "baseline", "b-train", "fetch"))
     parser.add_argument("--local", action="store_true", help="run on this machine's GPU")
+    parser.add_argument("--max-parallel", type=int, default=2)
     args = parser.parse_args()
     if args.stage == "b-train":
         from modal_train import launch_training_jobs
@@ -102,7 +105,15 @@ def main():
     elif args.stage == "fetch":
         print(fetch([j["name"] for jobs in STAGES.values() for j in jobs]))
     else:
-        launch(STAGES[args.stage], local=args.local)
+        import json
+        from pathlib import Path
+
+        jobs = BASELINE_JOBS if args.stage == "baseline" else STAGES[args.stage]
+        calls = launch(jobs, local=args.local, max_parallel=args.max_parallel)
+        output = Path(__file__).with_name("results") / EXPERIMENT_KEY / f"jobs-{args.stage}.json"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps({"jobs": jobs, "calls": calls}, indent=2) + "\n")
+        print(f"Saved job manifest to {output}")
 
 
 if __name__ == "__main__":

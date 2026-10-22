@@ -48,7 +48,7 @@ from utils import create_batches
 
 def measure(model, *, probe=None, extremes=True, top_k=5, families=True, tensors=(),
             density_runs=0, energy=(), energy_probes=4, hutchinson_probes=0, lanczos_steps=48, bottom_steps=96,
-            block_steps=24, density_steps=96):
+            block_steps=24, density_steps=96, random_energy=(), random_partitions=2):
     """Measure the Hessian of the probe loss at the model's current weights.
 
     extremes       top-k and bottom eigenpairs of H, each with its residual and the share
@@ -61,6 +61,7 @@ def measure(model, *, probe=None, extremes=True, top_k=5, families=True, tensors
     energy         partitions among "family", "layer", "tensor": for each, Hutchinson
                    estimates of ||H_cb||_F^2 for every pair of its blocks, per probe.
     hutchinson_probes  tr(H)/d and tr(H^2)/d samples.
+    random_energy     matched-size random controls for "family" and/or "layer".
     """
     hs.exact_numerics()
     device = next(model.parameters()).device
@@ -112,20 +113,46 @@ def measure(model, *, probe=None, extremes=True, top_k=5, families=True, tensors
                 keys, E = hs.block_energy(H.hvp, H.size, hs.partition(H.names, H.sizes, label),
                                           device, probes=energy_probes)
                 out["energy"][part] = {"blocks": keys, "per_probe": E.tolist()}
+        if random_energy:
+            out["random_energy"] = {}
+            for part in random_energy:
+                label = {"family": hs.family_of, "layer": hs.layer_of}[part]
+                blocks = hs.partition(H.names, H.sizes, label)
+                samples = []
+                for index in range(random_partitions):
+                    seed = 101 + index
+                    keys, E = hs.random_block_energy(H.hvp, H.size, blocks, device,
+                                                     probes=energy_probes, seed=seed)
+                    samples.append({"partition_seed": seed, "per_probe": E.tolist()})
+                out["random_energy"][part] = {
+                    "blocks": keys, "block_sizes": [hs.block_size(blocks[k]) for k in keys],
+                    "partitions": samples}
         if hutchinson_probes:
             out["hutchinson"] = hs.hutchinson(H.hvp, H.size, device, probes=hutchinson_probes)
     out["seconds"] = time.time() - t0
     return out
 
 
-def measure_checkpoint(run, step=checkpoints.FINAL_STEP, device="cuda", scale=None, **options):
+def measure_checkpoint(run, step=checkpoints.FINAL_STEP, device="cuda", scale=None,
+                       check_scale_invariance=False, **options):
     """measure() on `step` of `run` (see checkpoints.load), tagged with run, step, tokens.
     scale: optional {parameter name: factor} applied to the weights before measuring."""
     model, _, _ = checkpoints.load(run, step, device)
+    diagnostics = {}
+    if check_scale_invariance:
+        tokens = checkpoints.probe(device)[:1]
+        with torch.no_grad(), torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
+            before = model(input_ids=tokens).float()
+            with scaled(model, scale or {}):
+                after = model(input_ids=tokens).float()
+            diagnostics = {"scale_check_rows": 1,
+                           "scale_max_logit_error": float((before - after).abs().max())}
+            if not torch.allclose(before, after, atol=2e-4, rtol=2e-4):
+                raise ValueError(f"Rescaling changed logits: {diagnostics}")
     with scaled(model, scale or {}):
         result = measure(model, **options)
     return {"run": str(run), "step": step, "tokens": step * checkpoints.TOKENS_PER_STEP,
-            "scale": scale or {}, **result}
+            "scale": scale or {}, **diagnostics, **result}
 
 
 @contextmanager

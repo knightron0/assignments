@@ -101,7 +101,8 @@ def load(run, step=FINAL_STEP, device="cuda", optimizer=False):
 def build_optimizer(model, config):
     return train_module.build_optimizer(
         model, optimizer_name=config.optimizer_name, learning_rate=config.learning_rate,
-        weight_decay=config.weight_decay, beta1=config.beta1, beta2=config.beta2)
+        weight_decay=config.weight_decay, beta1=config.beta1, beta2=config.beta2,
+        head_weight_decay_multiplier=config.head_weight_decay_multiplier)
 
 
 @cache

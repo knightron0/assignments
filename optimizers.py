@@ -1,3 +1,5 @@
+import math
+
 import torch
 
 
@@ -55,6 +57,7 @@ def build_optimizer(
     weight_decay,
     beta1,
     beta2,
+    head_weight_decay_multiplier=1.0,
 ):
     if optimizer_name not in {"adamw", "sgd"}:
         raise ValueError(f"Unsupported optimizer {optimizer_name!r}; expected 'adamw' or 'sgd'.")
@@ -63,6 +66,25 @@ def build_optimizer(
         model,
         weight_decay,
     )
+    if not math.isfinite(head_weight_decay_multiplier) or head_weight_decay_multiplier < 0:
+        raise ValueError("head_weight_decay_multiplier must be finite and nonnegative")
+    if head_weight_decay_multiplier != 1.0:
+        head = model.get_output_embeddings().weight
+        if head is model.get_input_embeddings().weight:
+            raise ValueError("Head-specific weight decay requires untied embeddings")
+        found = False
+        for group in optimizer_parameters:
+            if any(p is head for p in group["params"]):
+                if group["weight_decay"] != weight_decay:
+                    raise ValueError("Output head must belong to the decayed group")
+                group["params"] = [p for p in group["params"] if p is not head]
+                found = True
+                break
+        if not found:
+            raise ValueError("Output head is not a trainable optimizer parameter")
+        optimizer_parameters = [g for g in optimizer_parameters if g["params"]]
+        optimizer_parameters.append({"params": [head],
+                                     "weight_decay": weight_decay * head_weight_decay_multiplier})
     if optimizer_name == "adamw":
         optimizer_kwargs = {
             "lr": learning_rate,

@@ -20,7 +20,6 @@ from train import TrainConfig, build_model, checked_train_config, train, trainin
 def mock_wandb():
     wandb = Mock()
     wandb.init.return_value = SimpleNamespace(id="test-run", url="test-run")
-    wandb.util.generate_id.return_value = "test-run"
     return wandb
 
 

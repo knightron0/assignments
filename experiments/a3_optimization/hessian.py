@@ -333,6 +333,30 @@ def block_energy(matvec, size, blocks, device, probes=4, seed=11):
     return keys, out
 
 
+def random_block_energy(matvec, size, blocks, device, probes=4, seed=101):
+    """Uniform random coordinate groups with exactly the supplied block sizes.
+
+    Reorder coordinates once, then apply ordinary contiguous-block probes to
+    P^T H P. No dense Hessian or coordinate-range list is constructed.
+    """
+    gen = torch.Generator(device=device).manual_seed(seed)
+    perm = torch.randperm(size, generator=gen, device=device)
+    random_blocks, offset = {}, 0
+    for name, ranges in blocks.items():
+        count = block_size(ranges)
+        random_blocks[name] = [(offset, offset + count)]
+        offset += count
+    if offset != size:
+        raise ValueError("Blocks must cover the full parameter vector")
+
+    def permuted_hvp(v):
+        original = torch.empty_like(v)
+        original[perm] = v
+        return matvec(original)[perm]
+
+    return block_energy(permuted_hvp, size, random_blocks, device, probes=probes, seed=seed + 1000)
+
+
 def coarsen(keys, energy, label):
     """Sum a [..., B, B] block-energy array into the blocks given by label(key)."""
     groups = list(dict.fromkeys(label(k) for k in keys))

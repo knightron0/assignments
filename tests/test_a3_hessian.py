@@ -125,7 +125,9 @@ class HessianToolsTests(unittest.TestCase):
                       tensors=[self.names[0]], density_runs=1, energy=("family", "layer"),
                       lanczos_steps=40, block_steps=20, density_steps=20)
         exact = torch.linalg.eigvalsh(self.H.double())
-        self.assertAlmostEqual(out["lambda_max"], float(exact[-1]), places=3)
+        # FP32 HVP error scales with the eigenvalue; decimal-place tolerance
+        # spuriously fails at large curvature despite sub-ppm relative error.
+        np.testing.assert_allclose(out["lambda_max"], float(exact[-1]), rtol=2e-6, atol=1e-5)
         self.assertEqual(set(out["energy"]), {"family", "layer"})
         E = np.array(out["energy"]["family"]["per_probe"])
         self.assertEqual(E.shape, (4, 6, 6))
