@@ -8,6 +8,9 @@ from torch import nn
 from module_rms_logging import log_module_rms
 
 CHUNK_SIZE = 16
+# Each layer's compiled cell_steps is guarded per module and mode; 4 layers x train/eval
+# exceeds the default limit of 8 and raises mid-run.
+torch._dynamo.config.cache_size_limit = 64
 
 
 @torch.compiler.disable

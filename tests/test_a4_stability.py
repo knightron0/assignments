@@ -82,7 +82,7 @@ class AlgorithmTests(unittest.TestCase):
         self.assertEqual(len({training_run_name(c) for c in configs}), 105)
         self.assertTrue(all(sweeps.VARIANTS[name].problem in (1, 2)
                             for name in sweeps.PROVIDED_VARIANTS))
-        self.assertEqual(set(p4.MODELS), {'gru', 'tanh'})
+        self.assertLessEqual({'gru', 'tanh'}, set(p4.MODELS))
         for name, variant in sweeps.VARIANTS.items():
             rates = sweeps.learning_rates(name)
             self.assertEqual(len(set(rates)), 5)
@@ -144,7 +144,8 @@ class AlgorithmTests(unittest.TestCase):
 
     def test_editable_cells_compile_with_the_same_gradients(self):
         # Check the editable cell path without compiling a CUDA job.
-        for cls in (p4.GRUCell,):
+        for cls in (p4.GRUCell, p4.NoResetCell, p4.NoUpdateCell, p4.FixedUpdateCell,
+                    p4.InputGatesCell, p4.NormGRUCell):
             with self.subTest(cell=cls.__name__):
                 sequence = p2.Recurrent(TINY, cls)
                 other = copy.deepcopy(sequence)
